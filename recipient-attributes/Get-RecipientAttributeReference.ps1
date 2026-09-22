@@ -70,11 +70,12 @@ param(
     [ValidateRange(1, 5)]
     [int] $ExamplesPerPattern = 1,
     [string[]] $AdditionalGroup,
-    [switch] $SkipConflictCheck
+    [switch] $SkipConflictCheck,
+    [switch] $Stdout
 )
 
 $ErrorActionPreference = 'Stop'
-$script:Version = '1.1.0'
+$script:Version = '1.2.0'
 
 # ---------------------------------------------------------------------------
 # Attribute sets
@@ -652,12 +653,6 @@ $report = [ordered]@{
     )
 }
 
-$folder = Resolve-OutputFolder -Requested $OutputPath
-$jsonPath = Join-Path $folder 'RecipientAttributeReference.json'
-$textPath = Join-Path $folder 'RecipientAttributeReference.txt'
-
-$report | ConvertTo-Json -Depth 8 | Out-File -FilePath $jsonPath -Encoding UTF8
-
 # Human readable companion, so the output can be sanity checked before it is sent.
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add('Recipient attribute reference')
@@ -775,6 +770,36 @@ foreach ($section in $sections) {
     }
 }
 
+# Collect any section that recorded an error, so a partial report says so up front
+# rather than looking complete.
+$sectionErrors = @()
+foreach ($key in $report.environment.Keys) {
+    if ($key -like '*Error') { $sectionErrors += ('{0}: {1}' -f $key, $report.environment[$key]) }
+}
+if ($report.conflicts.Contains('error')) { $sectionErrors += ('conflicts: {0}' -f $report.conflicts['error']) }
+
+if ($Stdout) {
+    # Used when the script is dispatched by an RMM tool: write nothing to disk, and put
+    # the verdict first because the agent truncates long output from the end.
+    Write-Output ('RESULT={0}' -f $(if ($sectionErrors.Count -eq 0) { 'OK' } else { 'PARTIAL' }))
+    Write-Output ('VERSION={0}' -f $script:Version)
+    Write-Output ('SECTION_ERRORS={0}' -f $sectionErrors.Count)
+    foreach ($sectionError in $sectionErrors) { Write-Output ('  ! {0}' -f $sectionError) }
+    foreach ($entry in $report.counts.GetEnumerator()) {
+        Write-Output ('COUNT_{0}={1}' -f $entry.Key, $entry.Value)
+    }
+    Write-Output ''
+    $lines | ForEach-Object { Write-Output $_ }
+    Write-Output ''
+    Write-Output 'END_OF_REPORT'
+    return
+}
+
+$folder = Resolve-OutputFolder -Requested $OutputPath
+$jsonPath = Join-Path $folder 'RecipientAttributeReference.json'
+$textPath = Join-Path $folder 'RecipientAttributeReference.txt'
+
+$report | ConvertTo-Json -Depth 8 | Out-File -FilePath $jsonPath -Encoding UTF8
 $lines | Out-File -FilePath $textPath -Encoding UTF8
 
 Write-Host ''
@@ -785,3 +810,8 @@ Write-Host ('  {0}' -f (Split-Path -Leaf $jsonPath)) -ForegroundColor Gray
 Write-Host ''
 Write-Host 'Please review the .txt file before sending it back.' -ForegroundColor Yellow
 Write-Host ''
+if ($sectionErrors.Count -gt 0) {
+    Write-Host ('{0} section(s) could not be collected:' -f $sectionErrors.Count) -ForegroundColor Yellow
+    foreach ($sectionError in $sectionErrors) { Write-Host ('  {0}' -f $sectionError) -ForegroundColor Gray }
+    Write-Host ''
+}
