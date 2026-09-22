@@ -50,6 +50,11 @@
     Skips the duplicate address and alias check, which is the slowest part on a large
     directory.
 
+.PARAMETER Stdout
+    Writes the report to the console and creates no files at all. Intended for running the
+    script through a remote management tool, where the output is read from the job result
+    rather than from disk.
+
 .EXAMPLE
     powershell.exe -ExecutionPolicy Bypass -File .\Get-RecipientAttributeReference.ps1
 
@@ -57,7 +62,7 @@
     powershell.exe -ExecutionPolicy Bypass -File .\Get-RecipientAttributeReference.ps1 -Redact
 
 .NOTES
-    Version 1.1.0
+    Version 1.2.1
     Requires Windows PowerShell 5.1 or later and the ActiveDirectory module.
 #>
 
@@ -75,7 +80,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:Version = '1.2.0'
+$script:Version = '1.2.1'
 
 # ---------------------------------------------------------------------------
 # Attribute sets
@@ -175,7 +180,9 @@ function ConvertTo-Reportable {
                 # The container is what provisioning needs; the object's own name is not.
                 $result['parentOU'] = Get-ParentDn -DistinguishedName ([string]$raw)
             }
-            { $_ -in @('displayName', 'sAMAccountName', 'mailNickname') } {
+            { $_ -in @('displayName', 'sAMAccountName', 'mailNickname', 'msExchArchiveName') } {
+                # msExchArchiveName carries the mailbox display name and often the server
+                # name, so it has to be masked with the rest of the identity fields.
                 $result[$name] = if ($Redact) { $Token } else { [string]$raw }
             }
             { $_ -in @('userPrincipalName', 'mail', 'targetAddress', 'legacyExchangeDN') } {
